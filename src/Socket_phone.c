@@ -43,8 +43,8 @@ void *send_data(void *arg) {
             exit(1);
         }
     }
-    shutdown(s, SHUT_WR);
-    return 0;
+    close(fp);
+    return NULL;
 }
 
 void *recv_data(void *arg) {
@@ -116,7 +116,7 @@ void *getchar_self(void *arg){
                 connected = 1;
                 // 送る処理
                 int send_char_num = send(s, data, sizeof(char), 0);
-                break;
+                pthread_exit(NULL);
             case 'm':
                 mute = (mute + 1) % 2;
         }
@@ -132,7 +132,7 @@ void *getchar_opponent(void *arg){
         switch(data[0]){
             case 'c':
                 connected = 1;
-                break;
+                pthread_exit(NULL);
         }
     }
 }
@@ -152,12 +152,14 @@ int main(int argc, char *argv[]){
         addr.sin_port = htons(atoi(argv[1]));  //ポート番号
         addr.sin_addr.s_addr = INADDR_ANY; //どのIPアドレスも受付
 
+        // どのポートで待ち受けるか
         int ret = bind(ss, (struct sockaddr *)&addr, sizeof(addr));
         if(ret == -1){
             perror("bind");
             exit(1);
         }
-
+        
+        // 待ち受け可能宣言
         listen(ss, 10);
 
         struct sockaddr_in client_addr;
