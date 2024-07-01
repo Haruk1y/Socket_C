@@ -8,11 +8,18 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <termios.h>
+#include <fcntl.h>
 
 #define BUFFER_SIZE 256
+#define max_call 3
 
-void *send_data_serv(void *arg) {
-    // 通信ができてから音声を送信
+// 通話の開始
+int connected = 0;
+// ミュートの開始
+int mute = 0;
+
+void *send_data(void *arg) {
     FILE *fp;
     char *cmdline = "rec -t raw -b 16 -c 1 -e s -r 44100 -";
     if((fp = popen(cmdline, "r")) == NULL){
@@ -21,75 +28,112 @@ void *send_data_serv(void *arg) {
     }
 
     int s = *(int *)arg;
-    // 出力データのバッファ
-    // 標準入力から読み込み，データを送信
-    char buf[1];
-    while(1){
-        int n = fread(buf, sizeof(char), sizeof(char), fp);
-        if(n == -1){
-            perror("read");
-            exit(1);
-        }else if(n == 0){
-            break;
-        }
-
-        int m = send(s, buf, n, 0);
-        if(m == -1){
-            perror("send");
-            exit(1);
-        }
-    }
-    pclose(fp);
-    return NULL;
-}
-
-void *send_data_client(void *arg) {
-    int s = *(int *)arg;
-    char data[BUFFER_SIZE];
+    short data[1];
     while (1) {
-        int n = read(0, data, BUFFER_SIZE);
+        int n = fread(data, sizeof(short), 1, fp);
         if (n == -1) {
             perror("read");
             exit(1);
         } else if (n == 0) {
             break;
         }
-        int m = send(s, data, n, 0);
+        int m = send(s, data, sizeof(data), 0);
         if (m == -1) {
             perror("send");
             exit(1);
         }
     }
     shutdown(s, SHUT_WR);
-    return NULL;
+    return 0;
 }
 
 void *recv_data(void *arg) {
+    FILE *fp;
+    char *cmdline = "play -t raw -b 16 -c 1 -e s -r 44100 -";
+    if((fp = popen(cmdline, "w")) == NULL){
+        perror("popen");
+        exit(1);
+    }
+
     int s = *(int *)arg;
-    char data[BUFFER_SIZE];
+    short data[1];
     while (1) {
-        int n = recv(s, data, BUFFER_SIZE, 0);
+        int n = recv(s, data, sizeof(data), 0);
         if (n == -1) {
             perror("recv");
             exit(1);
         } else if (n == 0) {
             break;
         }
-        int m = write(1, data, n);
-        if (m == -1) {
-            perror("write");
-            exit(1);
+        if(mute == 1){
+            short garbage[1];
+            garbage[0] = 0;
+            int m = fwrite(garbage, sizeof(short), 1, fp);
+            if (m == -1) {
+                perror("write");
+                exit(1);
+            }
+        }
+        else{
+            int m = fwrite(data, sizeof(short), 1, fp);
+            if (m == -1) {
+                perror("write");
+                exit(1);
+            }
         }
     }
+    pclose(fp);
     return NULL;
 }
 
-void *ringtone(void *arg){
-    FILE *fp;
-    char *cmdline = "play ../data/Ringtone/call.mp3";
-    if((fp = popen(cmdline, "w")) == NULL){
-        perror("popen");
-        exit(1);
+void *ring(void *arg){
+    int counter = 0;
+    while(counter < max_call){
+        if(connected == 1){
+            break;
+        }
+        FILE *fp;
+        char *cmdline = "play ../data/Ringtone/call.mp3";
+        if((fp = popen(cmdline, "w")) == NULL){
+            perror("popen");
+            exit(1);
+        }
+        ++counter;
+        pclose(fp);
+    }
+
+    pthread_exit(NULL);
+}
+
+// cでserver側が通話開始、mでお互いに相手をミュート
+void *getchar_self(void *arg){
+    int s = *(int *)arg;
+    char data[1];
+    while(1){
+        data[0] = getchar();
+        switch(data[0]){
+            case 'c':
+                connected = 1;
+                // 送る処理
+                int send_char_num = send(s, data, sizeof(char), 0);
+                break;
+            case 'm':
+                mute = (mute + 1) % 2;
+        }
+    }
+}
+
+// cでclient側が通話開始
+void *getchar_opponent(void *arg){
+    int s = *(int *)arg;
+    char data[1];
+    while (1) {
+        int n = recv(s, data, sizeof(data), 0);
+        switch(data[0]){
+            case 'c':
+                connected = 1;
+                break;
+        }
     }
 }
 
@@ -127,22 +171,29 @@ int main(int argc, char *argv[]){
 
         /*　ここで音声を流す 
         　　 流す関数とyes/noのフラグを受けとるものを並列 */
+        pthread_t getchar_self_thread, ring_thread;
 
-        // コマンドラインによる音声の再生
-        FILE *fp;
-        char *cmdline = "play ../data/Ringtone/call.mp3 ";
-        if((fp = popen(cmdline, "w")) == NULL){
-            perror("popen");
+        if (pthread_create(&getchar_self_thread, NULL, getchar_self, &s) != 0){
+            perror("pthread_create");
             exit(1);
         }
 
-        // 入力待ち　電話をとるかとらないか
-        char buf[1];
+        if (pthread_create(&ring_thread, NULL, ring, &s) != 0){
+            perror("pthread_create");
+            exit(1);
+        }
+
+        pthread_join(getchar_self_thread, NULL);
+        pthread_join(ring_thread, NULL);
+
+        if (connected == 0){
+            return 0;
+        }
 
         // 並列処理
         pthread_t send_thread, recv_thread;
 
-        if (pthread_create(&send_thread, NULL, send_data_serv, &s) != 0) {
+        if (pthread_create(&send_thread, NULL, send_data, &s) != 0) {
             perror("pthread_create");
             exit(1);
         }
@@ -152,8 +203,14 @@ int main(int argc, char *argv[]){
             exit(1);
         }
 
+        if (pthread_create(&getchar_self_thread, NULL, getchar_self, &s) != 0){
+            perror("pthread_create");
+            exit(1);
+        }
+
         pthread_join(send_thread, NULL);
         pthread_join(recv_thread, NULL);
+        pthread_join(getchar_self_thread, NULL);
 
         close(s);
     }
@@ -178,9 +235,28 @@ int main(int argc, char *argv[]){
         }
 
         //並列処理
-        pthread_t send_thread, recv_thread;
+        pthread_t ring_thread, getchar_opponent_thread;
 
-        if (pthread_create(&send_thread, NULL, send_data_client, &s) != 0) {
+        // タイミング調整
+        sleep(1);
+
+        if (pthread_create(&ring_thread, NULL, ring, &s) != 0) {
+            perror("pthread_create");
+            exit(1);
+        }
+
+        if (pthread_create(&getchar_opponent_thread, NULL, getchar_opponent, &s) != 0) {
+            perror("pthread_create");
+            exit(1);
+        }
+
+        if(connected == 0){
+            return 0;
+        } 
+
+         pthread_t send_thread, recv_thread;
+
+        if (pthread_create(&send_thread, NULL, send_data, &s) != 0) {
             perror("pthread_create");
             exit(1);
         }
@@ -190,16 +266,24 @@ int main(int argc, char *argv[]){
             exit(1);
         }
 
+        if (pthread_create(&getchar_opponent_thread, NULL, getchar_opponent, &s) != 0){
+            perror("pthread_create");
+            exit(1);
+        }
+
         pthread_join(send_thread, NULL);
         pthread_join(recv_thread, NULL);
+        pthread_join(getchar_opponent_thread, NULL);
 
         close(s);
     }
 
     else{
-        fprintf(stderr, "Usage: %s <Port>\n", argv[0]);
+        fprintf(stderr, "Usage (server): %s <Port>\n", argv[0]);
+        fprintf(stderr, "Usage (client): %s <IP> <Port>\n", argv[0]);
         exit(1);
     }
+
 
     return 0;
 }
