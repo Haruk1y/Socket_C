@@ -23,7 +23,17 @@ gcc -o Socket_phone Socket_phone.c
 
 - クライアント側
 ```sh
-./Socket_phone <IP_Addr> <Poirt>
+./Socket_phone <IP_Addr> <Port>
 ```
 (IP_Addr)および(Port)にはサーバー側のIPアドレス，ポート番号を入力する．
 サーバーへの接続を試みる．
+
+## Feature
+下記機能の実現．
+- 擬似受話器
+- 着信音の再生
+- 留守番電話
+- ボイスチェンジャー
+- ノイズキャンセル
+- ミュート機能
+- 消音機能
