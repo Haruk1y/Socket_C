@@ -4,6 +4,8 @@
 C言語で記述したソケット通信プログラムです．
 Soxを用いた双方向の通信が可能となっています．
 
+<img width="1020" alt="FLOW" src="https://github.com/Haruk1y/Socket_C/assets/147027077/d96d4aac-1714-4d70-ae53-a4b15ccd2a3f">
+
 ## Requirement
 Sox
 
