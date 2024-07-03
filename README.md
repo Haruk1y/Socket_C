@@ -16,13 +16,14 @@ gcc -o Socket_phone Socket_phone.c
 
 - サーバー側
 ```sh
-$ rec -t raw -b 16 -c 1 -e s -r 44100 - | ./Socket_phone (port) | play -t raw -b 16 -c 1 -e s -r 44100 -
+./Socket_phone <Port>
 ```
-(port)には好きなポート番号を入れる．サーバーが立ちあがる．
+(Port)には好きなポート番号を入れる．サーバーが立ちあがり，
+クライアントの接続待ち状態になる．
 
 - クライアント側
 ```sh
-rec -t raw -b 16 -c 1 -e s -r 44100 - | ./Socket_phone (IP_addres) (port) | play -t raw -b 16 -c 1 -e s -r 44100 -
+./Socket_phone <IP_Addr> <Poirt>
 ```
-(IP_addres)および(port)にはサーバー側のIPアドレス，ポート番号を入力する．
-通信が始まる．
+(IP_Addr)および(Port)にはサーバー側のIPアドレス，ポート番号を入力する．
+サーバーへの接続を試みる．
